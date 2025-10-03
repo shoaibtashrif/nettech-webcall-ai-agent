@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Cromwell Cars Web Dispatcher</title>
+    <script type="module">
+        import { UltravoxSession } from 'https://cdn.skypack.dev/ultravox-client@0.3.6';
+        window.UltravoxSession = UltravoxSession;
+        window.ultravoxLoaded = true;
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            background: linear-gradient(45deg, #fff, #e0e0e0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 20px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 40px;
+            align-items: start;
+        }
+
+        .call-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .status-section {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 15px;
+            padding: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo-container {
+            text-align: center;
+            margin: 40px 0;
+        }
+
+        .logo {
+            width: 80px;
+            height: 80px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2rem;
+            font-weight: bold;
+        }
+
+        .transcript-container {
+            height: 300px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+        }
+
+        .transcript-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .transcript-container::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        .transcript-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+        }
+
+        .transcript-message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .transcript-speaker {
+            font-weight: bold;
+            color: #4fc3f7;
+            margin-bottom: 5px;
+        }
+
+        .transcript-text {
+            line-height: 1.4;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 15px 25px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(45deg, #4fc3f7, #29b6f6);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(79, 195, 247, 0.3);
+        }
+
+        .btn-danger {
+            background: linear-gradient(45deg, #f44336, #e53935);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(244, 67, 54, 0.3);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .status-indicator {
+            padding: 15px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 20px;
+        }
+
+        .status-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #4fc3f7;
+        }
+
+        .status-text {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .overview {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .overview h3 {
+            margin-bottom: 15px;
+            color: #4fc3f7;
+        }
+
+        .overview p {
+            line-height: 1.6;
+            opacity: 0.9;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #4fc3f7;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .fade-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: linear-gradient(to bottom, rgba(0, 0, 0, 0.2), transparent);
+            pointer-events: none;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+
+            .container {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Cromwell Cars</h1>
+            <p>AI-Powered Web Dispatcher - Independent Python Service</p>
+        </div>
+
+        <div class="main-content">
+            <div class="call-section">
+                <div class="logo-container">
+                    <div class="logo">🚖</div>
+                </div>
+
+                <div id="call-interface">
+                    <div class="overview">
+                        <h3>About This Service</h3>
+                        <p>This is an independent Python web interface for Cromwell Cars AI Dispatcher. It uses its own
+                            agent configuration separate from the Twilio phone service, but maintains the same prompt
+                            and tools for consistent customer experience.</p>
+                        <div id="mobile-notice" style="display: none; margin-top: 15px; padding: 10px; background: rgba(255, 193, 7, 0.2); border-radius: 5px; border-left: 4px solid #ffc107;">
+                            <strong>📱 Mobile Users:</strong> Please allow microphone access when prompted. If you don't hear the agent, try using headphones or increasing your volume.
+                        </div>
+                    </div>
+
+                    <div id="transcript-container" class="transcript-container" style="display: none;">
+                        <div class="fade-overlay"></div>
+                        <div id="transcript-content"></div>
+                    </div>
+
+                    <div class="controls">
+                        <button id="start-call-btn" class="btn btn-primary" onclick="this.focus()">
+                            <span>📞</span>
+                            Start Call
+                        </button>
+                        <button id="end-call-btn" class="btn btn-danger" style="display: none;">
+                            <span>📞</span>
+                            End Call
+                        </button>
+                        <button id="mute-btn" class="btn btn-secondary" style="display: none;">
+                            <span id="mute-icon">🎤</span>
+                            <span id="mute-text">Mute</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-section">
+                <div class="status-indicator">
+                    <div class="status-title">Agent Status</div>
+                    <div id="agent-status" class="status-text">
+                        <span class="loading"></span> Loading configuration...
+                    </div>
+                </div>
+
+                <div class="status-indicator">
+                    <div class="status-title">Service Info</div>
+                    <div class="status-text">
+                        <div>🐍 Python FastAPI Backend</div>
+                        <div>🌐 Independent Web Service</div>
+                        <div>🤖 Ultravox AI Integration</div>
+                        <div>🚖 Cromwell Cars Dispatcher</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class CromwellWebDispatcher {
+            constructor() {
+                this.uvSession = null;
+                this.isCallActive = false;
+                this.config = null;
+                this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+                this.initializeElements();
+                this.loadConfiguration();
+                this.setupEventListeners();
+                this.setupMobileSupport();
+            }
+
+            initializeElements() {
+                this.startCallBtn = document.getElementById('start-call-btn');
+                this.endCallBtn = document.getElementById('end-call-btn');
+                this.muteBtn = document.getElementById('mute-btn');
+                this.agentStatus = document.getElementById('agent-status');
+                this.transcriptContainer = document.getElementById('transcript-container');
+                this.transcriptContent = document.getElementById('transcript-content');
+                this.muteIcon = document.getElementById('mute-icon');
+                this.muteText = document.getElementById('mute-text');
+            }
+
+            async loadConfiguration() {
+                try {
+                    const response = await fetch('/api/config');
+                    this.config = await response.json();
+                    this.updateStatus('✅ Configuration loaded - Ready to start call');
+                } catch (error) {
+                    console.error('Failed to load configuration:', error);
+                    this.updateStatus('⚠️ Using fallback configuration');
+                }
+            }
+
+            setupEventListeners() {
+                this.startCallBtn.addEventListener('click', () => this.startCall());
+                this.endCallBtn.addEventListener('click', () => this.endCall());
+                this.muteBtn.addEventListener('click', () => this.toggleMute());
+            }
+
+            setupMobileSupport() {
+                if (this.isMobile) {
+                    console.log('📱 Mobile device detected');
+                    document.getElementById('mobile-notice').style.display = 'block';
+                    
+                    // Add touch event listeners for better mobile interaction
+                    this.startCallBtn.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
+                        this.startCallBtn.focus();
+                    });
+                }
+            }
+
+            updateStatus(status) {
+                this.agentStatus.innerHTML = status;
+            }
+
+            async createCall() {
+                const callConfig = {
+                    systemPrompt: this.config?.callConfig?.systemPrompt || "You are Alex, a Cromwell Cars dispatcher.",
+                    model: this.config?.callConfig?.model || "fixie-ai/ultravox",
+                    languageHint: "en",
+                    selectedTools: this.config?.callConfig?.selectedTools || [],
+                    voice: this.config?.callConfig?.voice || "a656a751-b754-4621-b571-e1298cb7e5bb",
+                    temperature: this.config?.callConfig?.temperature || 0.3
+                };
+
+                const response = await fetch('/api/ultravox', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(callConfig)
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                }
+
+                return await response.json();
+            }
+
+            async startCall() {
+                try {
+                    this.updateStatus('🔄 Starting call...');
+                    this.startCallBtn.disabled = true;
+
+                    // Request microphone permission first (required for mobile)
+                    try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        stream.getTracks().forEach(track => track.stop()); // Stop the test stream
+                        console.log('✅ Microphone permission granted');
+                    } catch (permError) {
+                        console.error('❌ Microphone permission denied:', permError);
+                        this.updateStatus('❌ Microphone permission required. Please allow microphone access and try again.');
+                        this.startCallBtn.disabled = false;
+                        return;
+                    }
+
+                    // Clear previous transcript
+                    this.transcriptContent.innerHTML = '';
+
+                    // Create call
+                    const callData = await this.createCall();
+                    console.log('Call created:', callData);
+
+                    // Initialize Ultravox session
+                    if (typeof UltravoxSession === 'undefined') {
+                        throw new Error('UltravoxSession is not available. Please check if ultravox-client is loaded.');
+                    }
+
+                    this.uvSession = new UltravoxSession({
+                        experimentalMessages: new Set(["debug"])
+                    });
+
+                    // Setup event listeners
+                    this.uvSession.addEventListener('status', (event) => {
+                        if (this.uvSession && this.uvSession.status) {
+                            this.updateStatus(`📞 Call Status: ${this.uvSession.status}`);
+                        }
+                    });
+
+                    this.uvSession.addEventListener('transcript', (event) => {
+                        this.updateTranscript();
+                    });
+
+                    this.uvSession.addEventListener('experimental_message', (event) => {
+                        console.log('Debug message:', event);
+                    });
+
+                    // Join the call
+                    await this.uvSession.joinCall(callData.joinUrl);
+
+                    this.isCallActive = true;
+                    this.updateUI();
+                    this.updateStatus('✅ Call active - Speak to Alex');
+
+                } catch (error) {
+                    console.error('Error starting call:', error);
+                    this.updateStatus(`❌ Error: ${error.message}`);
+                    this.startCallBtn.disabled = false;
+                }
+            }
+
+            async endCall() {
+                try {
+                    this.updateStatus('🔄 Ending call...');
+
+                    if (this.uvSession) {
+                        this.uvSession.leaveCall();
+                        this.uvSession = null;
+                    }
+
+                    this.isCallActive = false;
+                    this.updateUI();
+                    this.updateStatus('✅ Call ended successfully');
+
+                } catch (error) {
+                    console.error('Error ending call:', error);
+                    this.updateStatus(`❌ Error ending call: ${error.message}`);
+                }
+            }
+
+            toggleMute() {
+                if (this.uvSession) {
+                    if (this.uvSession.isMicMuted) {
+                        this.uvSession.unmuteMic();
+                        this.muteIcon.textContent = '🎤';
+                        this.muteText.textContent = 'Mute';
+                    } else {
+                        this.uvSession.muteMic();
+                        this.muteIcon.textContent = '🔇';
+                        this.muteText.textContent = 'Unmute';
+                    }
+                }
+            }
+
+            updateTranscript() {
+                if (!this.uvSession || !this.uvSession.transcripts) return;
+
+                this.transcriptContent.innerHTML = '';
+
+                this.uvSession.transcripts.forEach(transcript => {
+                    const messageDiv = document.createElement('div');
+                    messageDiv.className = 'transcript-message';
+
+                    const speakerDiv = document.createElement('div');
+                    speakerDiv.className = 'transcript-speaker';
+                    speakerDiv.textContent = transcript.speaker === 'agent' ? 'Alex (Agent)' : 'You';
+
+                    const textDiv = document.createElement('div');
+                    textDiv.className = 'transcript-text';
+                    textDiv.textContent = transcript.text;
+
+                    messageDiv.appendChild(speakerDiv);
+                    messageDiv.appendChild(textDiv);
+                    this.transcriptContent.appendChild(messageDiv);
+                });
+
+                // Auto-scroll to bottom
+                this.transcriptContainer.scrollTop = this.transcriptContainer.scrollHeight;
+            }
+
+            updateUI() {
+                if (this.isCallActive) {
+                    this.startCallBtn.style.display = 'none';
+                    this.endCallBtn.style.display = 'flex';
+                    this.muteBtn.style.display = 'flex';
+                    this.transcriptContainer.style.display = 'block';
+                } else {
+                    this.startCallBtn.style.display = 'flex';
+                    this.startCallBtn.disabled = false;
+                    this.endCallBtn.style.display = 'none';
+                    this.muteBtn.style.display = 'none';
+                    this.transcriptContainer.style.display = 'none';
+
+                    // Reset mute button
+                    this.muteIcon.textContent = '🎤';
+                    this.muteText.textContent = 'Mute';
+                }
+            }
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded, waiting for Ultravox module...');
+
+            function checkUltravoxLoaded() {
+                if (window.ultravoxLoaded && window.UltravoxSession) {
+                    console.log('UltravoxSession loaded via module, initializing app...');
+                    new CromwellWebDispatcher();
+                } else {
+                    console.log('Waiting for Ultravox module to load...');
+                    setTimeout(checkUltravoxLoaded, 500);
+                }
+            }
+
+            // Start checking after a short delay
+            setTimeout(checkUltravoxLoaded, 1000);
+
+            // Fallback after 10 seconds
+            setTimeout(() => {
+                if (!window.ultravoxLoaded) {
+                    console.error('Ultravox module failed to load, showing error');
+                    document.body.innerHTML = `
+                        <div style="text-align: center; padding: 50px; color: white;">
+                            <h1>Loading Error</h1>
+                            <p>Failed to load Ultravox client module. This might be due to network restrictions.</p>
+                            <button onclick="location.reload()" style="padding: 10px 20px; margin: 10px; background: #4fc3f7; color: white; border: none; border-radius: 5px; cursor: pointer;">Refresh Page</button>
+                            <p style="margin-top: 20px; font-size: 0.9em; opacity: 0.8;">
+                                Note: This service requires loading the Ultravox client library from a CDN.<br>
+                                Please check your internet connection and any ad blockers.
+                            </p>
+                        </div>
+                    `;
+                }
+            }, 10000);
+        });
+
+
+    </script>
+</body>
+
+</html>
