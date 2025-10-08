@@ -14,7 +14,7 @@ CABEE_API_BASE = 'https://capi.cabee-est.com/api'
 
 # Pydantic models
 class AddressValidationRequest(BaseModel):
-    address_lines: List[str]
+    address_lines: Any  # Accept any type to handle AI mistakes
     postcode: Optional[str] = None
     building: Optional[str] = None
 
@@ -52,7 +52,7 @@ def generate_call_id():
 
 @router.post("/validateAddress")
 async def validate_address(request: AddressValidationRequest):
-    """Validate UK addresses using Cromwell Cars API"""
+    """Validate UK addresses using Cromwell Cars API with auto-retry on parameter errors"""
     
     call_id = generate_call_id()
     timestamp = datetime.now().isoformat()
@@ -63,15 +63,22 @@ async def validate_address(request: AddressValidationRequest):
         print(f"🆔 Call ID: {call_id}")
         print(f"📥 INCOMING REQUEST: {request.dict()}")
         
-        # Parse address_lines if it's a string
+        # Parse address_lines if it's a string (auto-correct common AI mistakes)
         address_lines = request.address_lines
         if isinstance(address_lines, str):
             try:
+                # Try to parse as JSON first
                 address_lines = json.loads(address_lines)
-                print(f"🔧 PARSED STRING TO ARRAY: {request.address_lines} → {address_lines}")
+                print(f"🔧 PARSED JSON STRING TO ARRAY: {request.address_lines} → {address_lines}")
             except json.JSONDecodeError:
+                # If not JSON, treat as single address line
                 address_lines = [address_lines]
-                print(f"🔧 CONVERTED TO ARRAY: {request.address_lines} → {address_lines}")
+                print(f"🔧 CONVERTED STRING TO ARRAY: {request.address_lines} → {address_lines}")
+        
+        # Ensure it's a proper list
+        if not isinstance(address_lines, list):
+            address_lines = [str(address_lines)]
+            print(f"🔧 FORCED TO ARRAY: {address_lines}")
         
         request_payload = {
             "address_lines": address_lines,
@@ -92,13 +99,63 @@ async def validate_address(request: AddressValidationRequest):
             
             print(f"📡 API Response Status: {response.status_code}")
             
+            # Handle 422 validation errors by auto-correcting and retrying
+            if response.status_code == 422:
+                error_text = response.text
+                print(f"⚠️ VALIDATION ERROR (422) - AUTO-CORRECTING: {error_text}")
+                
+                # Try alternative format - flatten address lines if they contain arrays
+                if "list_type" in error_text and "address_lines" in error_text:
+                    # Extract address components and flatten
+                    flattened_lines = []
+                    for line in address_lines:
+                        if isinstance(line, list):
+                            flattened_lines.extend([str(item) for item in line])
+                        else:
+                            flattened_lines.append(str(line))
+                    
+                    corrected_payload = {
+                        "address_lines": flattened_lines,
+                        "postcode": request.postcode,
+                    }
+                    
+                    print(f"🔄 RETRYING WITH CORRECTED PAYLOAD: {json.dumps(corrected_payload, indent=2)}")
+                    
+                    # Retry with corrected format
+                    retry_response = await client.post(
+                        f"{CROMWELL_API_BASE}/address/validate",
+                        headers={"Content-Type": "application/json"},
+                        json=corrected_payload,
+                        timeout=30.0
+                    )
+                    
+                    if retry_response.is_success:
+                        result = retry_response.json()
+                        print(f"✅ AUTO-CORRECTION SUCCESSFUL")
+                        print(f"📤 API RESPONSE DATA: {json.dumps(result, indent=2)}")
+                        return result
+                    else:
+                        print(f"❌ RETRY ALSO FAILED: {retry_response.status_code}")
+                        response = retry_response  # Use retry response for final error handling
+            
             if not response.is_success:
                 error_text = response.text
                 print(f"❌ API Error: {response.status_code} - {error_text}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Address validation failed: {response.status_code} - {error_text}"
-                )
+                
+                # Only show user-friendly errors for non-recoverable issues
+                if response.status_code == 404:
+                    return {
+                        "success": False,
+                        "error": "Address not found",
+                        "candidates": []
+                    }
+                else:
+                    # For other errors, return a generic message
+                    return {
+                        "success": False,
+                        "error": "Unable to validate address at the moment",
+                        "candidates": []
+                    }
             
             result = response.json()
             print(f"📤 API RESPONSE DATA: {json.dumps(result, indent=2)}")
@@ -119,20 +176,24 @@ async def validate_address(request: AddressValidationRequest):
         print(f"💥 REQUEST ERROR: {str(e)}")
         print(f"❌ ===== ADDRESS VALIDATION ERROR END =====\n")
         
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "Address validation failed", "details": str(e)}
-        )
+        # Return user-friendly error instead of HTTP exception
+        return {
+            "success": False,
+            "error": "Network error during address validation",
+            "candidates": []
+        }
     except Exception as e:
         print(f"❌ ===== ADDRESS VALIDATION ERROR =====")
         print(f"🆔 Call ID: {call_id}")
         print(f"💥 UNEXPECTED ERROR: {str(e)}")
         print(f"❌ ===== ADDRESS VALIDATION ERROR END =====\n")
         
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "Address validation failed", "details": str(e)}
-        )
+        # Return user-friendly error instead of HTTP exception
+        return {
+            "success": False,
+            "error": "Unable to validate address",
+            "candidates": []
+        }
 
 @router.post("/checkPricing")
 async def check_pricing(request: PricingRequest):
@@ -171,10 +232,11 @@ async def check_pricing(request: PricingRequest):
             
             if not response.is_success:
                 print(f"❌ Make.com API Error: {response.status_code}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Pricing API error: {response.status_code}"
-                )
+                return {
+                    "success": False,
+                    "error": "Unable to get pricing at the moment",
+                    "status": "api_error"
+                }
             
             # Handle both JSON and text responses
             content_type = response.headers.get('content-type', '')
@@ -211,20 +273,24 @@ async def check_pricing(request: PricingRequest):
         print(f"💥 REQUEST ERROR: {str(e)}")
         print(f"❌ ===== PRICING TOOL ERROR END =====\n")
         
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "Failed to get pricing", "details": str(e)}
-        )
+        # Return user-friendly error instead of HTTP exception
+        return {
+            "success": False,
+            "error": "Unable to get pricing at the moment",
+            "status": "network_error"
+        }
     except Exception as e:
         print(f"❌ ===== PRICING TOOL ERROR =====")
         print(f"🆔 Call ID: {call_id}")
         print(f"💥 UNEXPECTED ERROR: {str(e)}")
         print(f"❌ ===== PRICING TOOL ERROR END =====\n")
         
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "Failed to get pricing", "details": str(e)}
-        )
+        # Return user-friendly error instead of HTTP exception
+        return {
+            "success": False,
+            "error": "Unable to get pricing at the moment",
+            "status": "system_error"
+        }
 
 @router.post("/bookCab")
 async def book_cab(request: BookingRequest):
@@ -252,7 +318,12 @@ async def book_cab(request: BookingRequest):
         elif request.operation == "getDriverLocation":
             return await handle_get_driver_location(request, jwt_token, call_id)
         else:
-            raise HTTPException(status_code=400, detail="Invalid operation")
+            return {
+                "status": "error",
+                "booking_status": "invalid_operation",
+                "error": "Invalid operation requested",
+                "data": None
+            }
             
     except HTTPException:
         raise
@@ -263,10 +334,13 @@ async def book_cab(request: BookingRequest):
         print(f"💥 UNEXPECTED ERROR: {str(e)}")
         print(f"❌ ===== BOOKING TOOL ERROR END =====\n")
         
-        raise HTTPException(
-            status_code=500,
-            detail={"success": False, "error": "Booking operation failed", "details": str(e)}
-        )
+        # Return user-friendly error instead of HTTP exception
+        return {
+            "status": "error",
+            "booking_status": "system_error",
+            "error": "System temporarily unavailable",
+            "data": None
+        }
 
 async def handle_create_booking(request: BookingRequest, jwt_token: str, call_id: str):
     """Handle cab booking creation"""
@@ -292,13 +366,21 @@ async def handle_create_booking(request: BookingRequest, jwt_token: str, call_id
             vehicle_type_mapping.get(request.vehicleTypeId, 68)
         )
     
+    # Use the user-provided phone number, prioritize passengerPhone over Phone
+    user_phone = request.passengerPhone or request.Phone
+    if not user_phone:
+        print(f"⚠️ WARNING: No phone number provided, using fallback")
+        user_phone = '03000000000'
+    
+    print(f"📞 Using phone number: {user_phone}")
+    
     booking_data = {
         "id": 0,
         "jobNO": "string",
         "date": request.date or datetime.now().isoformat(),
         "passengerName": request.passengerName,
-        "passengerPhone": request.Phone or '03000000000',
-        "passengerMobile": request.Phone or '03000000000',
+        "passengerPhone": user_phone,
+        "passengerMobile": user_phone,
         "passengerEmail": request.passengerEmail,
         "passengers": int(request.passengers) if request.passengers else 1,
         "bags": int(request.bags) if request.bags else 0,
@@ -320,6 +402,7 @@ async def handle_create_booking(request: BookingRequest, jwt_token: str, call_id
     print(f"🌐 CALLING CABEE CREATE BOOKING API:")
     print(f"   URL: {CABEE_API_BASE}/Job/CreateOnlineJob")
     print(f"   Vehicle Type Mapping: \"{request.vehicleTypeId}\" → {numeric_vehicle_type_id}")
+    print(f"   Phone Number Used: {user_phone}")
     print(f"   Payload: {json.dumps(booking_data, indent=2)}")
     
     async with httpx.AsyncClient() as client:
@@ -339,10 +422,14 @@ async def handle_create_booking(request: BookingRequest, jwt_token: str, call_id
         if not response.is_success:
             error_text = response.text
             print(f"❌ CREATE BOOKING ERROR: {response.status_code} - {error_text}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Create booking API error: {response.status_code} - {error_text}"
-            )
+            
+            # Return user-friendly error instead of HTTP exception
+            return {
+                "status": "error",
+                "booking_status": "failed",
+                "error": "Unable to create booking at the moment",
+                "data": None
+            }
         
         result = response.json()
         print(f"📤 CREATE BOOKING SUCCESS: {json.dumps(result, indent=2)}")
@@ -360,7 +447,8 @@ async def handle_create_booking(request: BookingRequest, jwt_token: str, call_id
                 "date": result.get("date"),
                 "origin": result.get("origin"),
                 "destination": result.get("destination"),
-                "vehicleType": request.vehicleTypeId
+                "vehicleType": request.vehicleTypeId,
+                "phoneNumber": user_phone
             }
         }
         
@@ -368,19 +456,26 @@ async def handle_create_booking(request: BookingRequest, jwt_token: str, call_id
         return response_data
 
 async def handle_get_booking(request: BookingRequest, jwt_token: str, call_id: str):
-    """Handle getting booking details"""
+    """Handle getting booking details with job number cleaning"""
     
     print(f"📋 === GET BOOKING OPERATION ===")
     
+    # Clean job number by removing dashes (A2-62 → A262)
+    clean_job_no = None
     if request.jobNO:
-        url = f"{CABEE_API_BASE}/Job/GetOnlineJobs?jobNO={request.jobNO}"
+        clean_job_no = request.jobNO.replace("-", "")
+        if clean_job_no != request.jobNO:
+            print(f"🔧 CLEANED JOB NUMBER: {request.jobNO} → {clean_job_no}")
+        url = f"{CABEE_API_BASE}/Job/GetOnlineJobs?jobNO={clean_job_no}"
     elif request.Phone:
         url = f"{CABEE_API_BASE}/Job/GetOnlineJobs?phoneNumber={request.Phone}"
     else:
-        raise HTTPException(
-            status_code=400,
-            detail="Either job number or phone number is required"
-        )
+        return {
+            "status": "error",
+            "booking_status": "invalid_request",
+            "error": "Either job number or phone number is required",
+            "data": None
+        }
     
     print(f"📤 GET BOOKING REQUEST: {url}")
     
@@ -407,10 +502,14 @@ async def handle_get_booking(request: BookingRequest, jwt_token: str, call_id: s
         if not response.is_success:
             error_text = response.text
             print(f"❌ GET BOOKING ERROR: {error_text}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Get booking API error: {response.status_code} - {error_text}"
-            )
+            
+            # Return user-friendly error instead of HTTP exception
+            return {
+                "status": "error",
+                "booking_status": "api_error",
+                "error": "Unable to retrieve booking at the moment",
+                "data": None
+            }
         
         result = response.json()
         print(f"✅ GET BOOKING SUCCESS: {json.dumps(result, indent=2)}")
@@ -478,21 +577,28 @@ async def handle_update_booking(request: BookingRequest, jwt_token: str, call_id
         }
 
 async def handle_cancel_booking(request: BookingRequest, jwt_token: str, call_id: str):
-    """Handle booking cancellation"""
+    """Handle booking cancellation with job number cleaning"""
     
     print(f"❌ === CANCEL BOOKING OPERATION ===")
     
+    # Clean job number by removing dashes (A2-62 → A262)
+    clean_job_no = None
     if request.jobNO:
-        url = f"{CABEE_API_BASE}/Job/CancelJob?jobNo={request.jobNO}&companyId=99"
-        print(f"🔍 Cancelling by job number: {request.jobNO}")
+        clean_job_no = request.jobNO.replace("-", "")
+        if clean_job_no != request.jobNO:
+            print(f"� eCLEANED JOB NUMBER: {request.jobNO} → {clean_job_no}")
+        url = f"{CABEE_API_BASE}/Job/CancelJob?jobNo={clean_job_no}&companyId=99"
+        print(f"🔍 Cancelling by job number: {clean_job_no}")
     elif request.Phone:
         url = f"{CABEE_API_BASE}/Job/CancelJob?mobile={request.Phone}&companyId=99"
         print(f"🔍 Cancelling by phone: {request.Phone}")
     else:
-        raise HTTPException(
-            status_code=400,
-            detail="Either job number or phone number is required to cancel booking"
-        )
+        return {
+            "status": "error",
+            "booking_status": "invalid_request",
+            "error": "Either job number or phone number is required to cancel booking",
+            "data": None
+        }
     
     print(f"📤 CANCEL REQUEST URL: {url}")
     
@@ -512,10 +618,14 @@ async def handle_cancel_booking(request: BookingRequest, jwt_token: str, call_id
         if not response.is_success:
             error_text = response.text
             print(f"❌ CANCEL ERROR: {error_text}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Cancel booking API error: {response.status_code} - {error_text}"
-            )
+            
+            # Return user-friendly error instead of HTTP exception
+            return {
+                "status": "error",
+                "booking_status": "api_error",
+                "error": "Unable to cancel booking at the moment",
+                "data": None
+            }
         
         cancel_result = response.text
         print(f"✅ CANCEL RESPONSE TEXT: {cancel_result}")
@@ -537,27 +647,34 @@ async def handle_cancel_booking(request: BookingRequest, jwt_token: str, call_id
             "booking_status": booking_status,
             "error": error,
             "data": {
-                "jobNO": request.jobNO,
+                "jobNO": clean_job_no or request.jobNO,
                 "result": cancel_result
             }
         }
 
 async def handle_get_driver_location(request: BookingRequest, jwt_token: str, call_id: str):
-    """Handle getting driver location"""
+    """Handle getting driver location with job number cleaning"""
     
     print(f"📍 === GET DRIVER LOCATION OPERATION ===")
     
     if not request.jobNO:
-        raise HTTPException(
-            status_code=400,
-            detail="Job number is required to get driver location"
-        )
+        return {
+            "status": "error",
+            "booking_status": "invalid_request",
+            "error": "Job number is required to get driver location",
+            "data": None
+        }
     
-    print(f"📤 LOCATION REQUEST: Job {request.jobNO}")
+    # Clean job number by removing dashes (A2-62 → A262)
+    clean_job_no = request.jobNO.replace("-", "")
+    if clean_job_no != request.jobNO:
+        print(f"🔧 CLEANED JOB NUMBER: {request.jobNO} → {clean_job_no}")
+    
+    print(f"📤 LOCATION REQUEST: Job {clean_job_no}")
     
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{CABEE_API_BASE}/Job/GetDriverCurrentLocationForJob/{request.jobNO}",
+            f"{CABEE_API_BASE}/Job/GetDriverCurrentLocationForJob/{clean_job_no}",
             headers={
                 "accept": "text/plain",
                 "Authorization": f"Bearer {jwt_token}"
@@ -578,10 +695,14 @@ async def handle_get_driver_location(request: BookingRequest, jwt_token: str, ca
         if not response.is_success:
             error_text = response.text
             print(f"❌ LOCATION ERROR: {error_text}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Get driver location API error: {response.status_code} - {error_text}"
-            )
+            
+            # Return user-friendly error instead of HTTP exception
+            return {
+                "status": "error",
+                "booking_status": "api_error",
+                "error": "Unable to get driver location at the moment",
+                "data": None
+            }
         
         result = response.json()
         print(f"✅ LOCATION SUCCESS: {json.dumps(result, indent=2)}")
@@ -591,7 +712,7 @@ async def handle_get_driver_location(request: BookingRequest, jwt_token: str, ca
             "booking_status": "driver_located",
             "error": None,
             "data": {
-                "jobNO": request.jobNO,
+                "jobNO": clean_job_no,
                 "location": result
             }
         }
